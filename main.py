@@ -149,6 +149,9 @@ def export_state(state: State, workspace: Path):
     with open(workspace / "summary.md", "w") as f:
         f.write(state["total_summary"])
 
+    with open(workspace / "answer.md", "w") as f:
+        f.write(state["answer"])
+
     source_dir = workspace / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
     source_file = source_dir / "source.md"
@@ -380,8 +383,10 @@ def main():
         {"query": args.query, "source_target": args.target},
         {"recursion_limit": 1000},
     )
+    print(result["answer"])
 
     export_state(result, args.workspace)
+    print("Exported state to", args.workspace)
 
 
 if __name__ == "__main__":
