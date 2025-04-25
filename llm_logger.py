@@ -89,8 +89,39 @@ class UsageLogger:
         summary_df = self.summary()
         print(summary_df)
 
+    def show_last_usage(self) -> None:
+        """
+        最後のレコードを表示
+        """
+        if not self.__records:
+            print("No records found.")
+            return
+
+        print("[Usage]")
+        last_record = self.__records[-1]
+        last_model = last_record["model"]
+        last_tokens = last_record["total_tokens"]
+        last_cost = last_record["total_cost_usd"]
+        last_elapsed_sec = last_record["elapsed_sec"]
+        print(
+            f"    [Last] Model: {last_model}, Tokens: {last_tokens}, Cost($): {last_cost:.2f}, Time(s): {last_elapsed_sec:.2f}"  # noqa: E501
+        )
+
+        total_tokens = self.total_tokens()
+        total_cost = self.total_cost_usd()
+        total_elapsed_sec = self.total_elapsed_sec()
+        print(
+            f"    [Total] Tokens: {total_tokens}, Cost($): {total_cost:.2f}, Time(s): {total_elapsed_sec:.2f}"  # noqa: E501
+        )
+
     def total_cost_usd(self) -> float:
         return sum(cast(float, r["total_cost_usd"]) for r in self.__records)
+
+    def total_elapsed_sec(self) -> float:
+        return sum(cast(float, r["elapsed_sec"]) for r in self.__records)
+
+    def total_tokens(self) -> int:
+        return sum(cast(int, r["total_tokens"]) for r in self.__records)
 
     def save_csv_logs(self) -> None:
         """

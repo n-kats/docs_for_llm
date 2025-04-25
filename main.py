@@ -1,5 +1,6 @@
 import argparse
 import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, TypedDict, cast
@@ -8,6 +9,8 @@ from langgraph.graph import END, START, StateGraph
 from markitdown import MarkItDown
 from openai import OpenAI
 from openai.types import ResponsesModel
+
+from llm_logger import UsageLogger
 
 
 def add_text(a: list[str], b: str) -> list[str]:
@@ -109,18 +112,35 @@ promt_get_answer = """以下の質問に回答してください。。
 """
 
 
-def get_openai_moldel(model_name: ResponsesModel, json_mode: bool = False) -> Callable[[str], str | Any]:
+def get_openai_moldel(
+    model_name: ResponsesModel, usage_logger: UsageLogger, json_mode: bool = False
+) -> Callable[[str], str | Any]:
     client = OpenAI()
 
     def fn(prompt: str) -> str | Any:
         additional_kwargs: dict[str, Any] = {}
         if json_mode:
             additional_kwargs["text"] = {"format": {"type": "json_object"}}
-        response = client.responses.create(
-            model=model_name,
-            input=prompt,
-            **additional_kwargs,
+        start = time.perf_counter()
+        try:
+            response = client.responses.create(
+                model=model_name,
+                input=prompt,
+                **additional_kwargs,
+            )
+        except Exception as e:
+            print("Error:", e)
+            usage_logger.save_csv_logs()
+            usage_logger.show_summary()
+            raise
+
+        end = time.perf_counter()
+        usage_logger.add_openai_usage(
+            usage=response.usage,
+            model_name=model_name,
+            elapsed_time_sec=end - start,
         )
+        usage_logger.show_last_usage()
         output_text: str = response.output_text
         if json_mode:
             return json.loads(output_text)
@@ -377,9 +397,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     args.workspace.mkdir(parents=True, exist_ok=True)
+    usage_logger = UsageLogger(args.workspace / "usage")
     model = cast(ResponsesModel, args.model)
-    llm_fn = cast(Callable[[str], str], get_openai_moldel(model))
-    llm_fn_json_mode = cast(Callable[[str], Any], get_openai_moldel(model, json_mode=True))
+    llm_fn = cast(Callable[[str], str], get_openai_moldel(model, usage_logger))
+    llm_fn_json_mode = cast(Callable[[str], Any], get_openai_moldel(model, usage_logger, json_mode=True))
     graph = build_graph(llm_fn=llm_fn, llm_fn_json_mode=llm_fn_json_mode).compile()
     graph.get_graph().draw_png("graph.png")
     result = graph.invoke(
@@ -389,6 +410,8 @@ def main() -> None:
     print(result["answer"])
 
     export_state(cast(State, result), args.workspace)
+    usage_logger.save_csv_logs()
+    usage_logger.show_summary()
     print("Exported state to", args.workspace)
 
 
