@@ -1,20 +1,23 @@
 import argparse
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated, Any, TypedDict, cast
+
+from langgraph.graph import END, START, StateGraph
 from markitdown import MarkItDown
-from langgraph.graph import StateGraph, START, END
-from typing import TypedDict
-from typing import Annotated
 from openai import OpenAI
+from openai.types import ResponsesModel
 
 
-def add_text(a: list[str], b: str):
+def add_text(a: list[str], b: str) -> list[str]:
     return [*a, b]
 
 
-def state_partial(func, *args, **kwargs):
-    def wrapper(state):
+def state_partial(func: Callable, *args: Any, **kwargs: Any) -> Callable[["State"], Any]:
+    def wrapper(state: "State") -> Any:
         return func(state=state, *args, **kwargs)
+
     return wrapper
 
 
@@ -84,7 +87,7 @@ promt_get_knowledge_for_query = """以下の文章を読んで、質問に対す
 ```
 {source}
 ```
-"""
+"""  # noqa: E501
 
 promt_get_total_summary = """以下の文章を読んで、全体の要約をしてください。
 # タイトル
@@ -106,11 +109,11 @@ promt_get_answer = """以下の質問に回答してください。。
 """
 
 
-def get_openai_moldel(model_name: str, json_mode: bool = False):
+def get_openai_moldel(model_name: ResponsesModel, json_mode: bool = False) -> Callable[[str], str | Any]:
     client = OpenAI()
 
-    def fn(prompt: str):
-        additional_kwargs = {}
+    def fn(prompt: str) -> str | Any:
+        additional_kwargs: dict[str, Any] = {}
         if json_mode:
             additional_kwargs["text"] = {"format": {"type": "json_object"}}
         response = client.responses.create(
@@ -118,10 +121,11 @@ def get_openai_moldel(model_name: str, json_mode: bool = False):
             input=prompt,
             **additional_kwargs,
         )
+        output_text: str = response.output_text
         if json_mode:
-            return json.loads(response.output_text)
+            return json.loads(output_text)
         else:
-            return response.output_text
+            return output_text
 
     return fn
 
@@ -143,7 +147,7 @@ class State(TypedDict):
     answer: str
 
 
-def export_state(state: State, workspace: Path):
+def export_state(state: State, workspace: Path) -> None:
     with open(workspace / "details.json", "w") as f:
         json.dump(state, f, indent=4, ensure_ascii=False)
     with open(workspace / "summary.md", "w") as f:
@@ -161,13 +165,15 @@ def export_state(state: State, workspace: Path):
     topics_dir = workspace / "topics"
     topics_dir.mkdir(parents=True, exist_ok=True)
     for i, (title, detail, summary, knowledge, knowledge_for_query) in enumerate(
-            zip(
-                state["title_per_topic"],
-                state["detail_per_topic"],
-                state["summary_per_topic"],
-                state["knowledge_per_topic"],
-                state["knowledge_for_query_per_topic"],
-            ), start=1):
+        zip(
+            state["title_per_topic"],
+            state["detail_per_topic"],
+            state["summary_per_topic"],
+            state["knowledge_per_topic"],
+            state["knowledge_for_query_per_topic"],
+        ),
+        start=1,
+    ):
         title = title.replace("/", "_")
         topic_dir = topics_dir / f"topic_{i:02d}_{title}"
         assert topic_dir.resolve().is_relative_to(topics_dir.resolve())
@@ -182,33 +188,41 @@ def export_state(state: State, workspace: Path):
             f.write(knowledge_for_query)
 
 
-def build_graph(llm_fn, llm_fn_json_mode):
+def build_graph(llm_fn: Callable[[str], str], llm_fn_json_mode: Callable[[str], Any]) -> StateGraph:
     graph = StateGraph(State)
     graph.add_node("get_source", get_source)
-    graph.add_node("get_topics", state_partial(
-        get_topics, llm_fn=llm_fn_json_mode, prompt=promt_get_topics))
+    graph.add_node(
+        "get_topics",
+        state_partial(get_topics, llm_fn=llm_fn_json_mode, prompt=promt_get_topics),
+    )
     graph.add_node("iterate_topics", iterate_topics)
-    graph.add_node("get_title", state_partial(
-        get_title, llm_fn=llm_fn, prompt=promt_get_title))
-    graph.add_node("get_detail", state_partial(
-        get_detail, llm_fn=llm_fn, prompt=promt_get_detail))
-    graph.add_node("get_summary", state_partial(
-        get_summary, llm_fn=llm_fn, prompt=promt_get_summary))
-    graph.add_node("get_knowledge", state_partial(
-        get_knowledge, llm_fn=llm_fn, prompt=promt_get_knowledge))
-    graph.add_node("get_knowledge_for_query", state_partial(
-        get_knowledge_for_query, llm_fn=llm_fn, prompt=promt_get_knowledge_for_query))
-    graph.add_node("get_total_summary", state_partial(
-        get_total_summary, llm_fn=llm_fn, prompt=promt_get_total_summary))
-    graph.add_node("get_answer", state_partial(
-        get_answer, llm_fn=llm_fn, prompt=promt_get_answer))
+    graph.add_node("get_title", state_partial(get_title, llm_fn=llm_fn, prompt=promt_get_title))
+    graph.add_node("get_detail", state_partial(get_detail, llm_fn=llm_fn, prompt=promt_get_detail))
+    graph.add_node(
+        "get_summary",
+        state_partial(get_summary, llm_fn=llm_fn, prompt=promt_get_summary),
+    )
+    graph.add_node(
+        "get_knowledge",
+        state_partial(get_knowledge, llm_fn=llm_fn, prompt=promt_get_knowledge),
+    )
+    graph.add_node(
+        "get_knowledge_for_query",
+        state_partial(get_knowledge_for_query, llm_fn=llm_fn, prompt=promt_get_knowledge_for_query),
+    )
+    graph.add_node(
+        "get_total_summary",
+        state_partial(get_total_summary, llm_fn=llm_fn, prompt=promt_get_total_summary),
+    )
+    graph.add_node("get_answer", state_partial(get_answer, llm_fn=llm_fn, prompt=promt_get_answer))
 
     graph.add_edge(START, "get_source")
     graph.add_edge("get_source", "get_topics")
     graph.add_edge("get_topics", "iterate_topics")
     graph.add_conditional_edges(
-        "iterate_topics", path=does_finish_topics_iteration,
-        path_map={True: "get_total_summary", False: "get_title"}
+        "iterate_topics",
+        path=does_finish_topics_iteration,
+        path_map={True: "get_total_summary", False: "get_title"},
     )
     graph.add_edge("get_title", "get_detail")
     graph.add_edge("get_detail", "get_summary")
@@ -221,7 +235,7 @@ def build_graph(llm_fn, llm_fn_json_mode):
     return graph
 
 
-def get_source(state: State):
+def get_source(state: State) -> dict[str, str | None]:
     target = state["source_target"]
     md = MarkItDown()
     converted = md.convert(target)
@@ -232,27 +246,25 @@ def get_source(state: State):
     }
 
 
-def get_topics(llm_fn, prompt: str, state: State):
+def get_topics(llm_fn: Callable[[str], Any], prompt: str, state: State) -> dict[str, list[str]]:
     source_md = state["source_markdown"]
     topics = llm_fn(prompt.format(source=source_md))["list"]
 
     return {"topics": topics}
 
 
-def iterate_topics(state: State):
+def iterate_topics(state: State) -> dict[str, int]:
     tmp_i_topic = state.get("tmp_i_topic", -1)
-    return {
-        "tmp_i_topic": tmp_i_topic + 1
-    }
+    return {"tmp_i_topic": tmp_i_topic + 1}
 
 
-def does_finish_topics_iteration(state: State):
+def does_finish_topics_iteration(state: State) -> bool:
     tmp_i_topic = state["tmp_i_topic"]
     topics = state["topics"]
     return tmp_i_topic >= len(topics)
 
 
-def get_title(state: State, llm_fn, prompt: str):
+def get_title(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     topic = state["topics"][state["tmp_i_topic"]]
     title = llm_fn(prompt.format(topic=topic))
 
@@ -265,7 +277,7 @@ def get_title(state: State, llm_fn, prompt: str):
     }
 
 
-def get_detail(state: State, llm_fn, prompt: str):
+def get_detail(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     topic = state["topics"][state["tmp_i_topic"]]
     source_md = state["source_markdown"]
     detail = llm_fn(prompt.format(topic=topic, source=source_md))
@@ -274,36 +286,32 @@ def get_detail(state: State, llm_fn, prompt: str):
     }
 
 
-def get_summary(state: State, llm_fn, prompt: str):
+def get_summary(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     topic = state["topics"][state["tmp_i_topic"]]
     detail = state["detail_per_topic"][state["tmp_i_topic"]]
-    summary = llm_fn(prompt.format(
-        topic=topic, source=detail))
+    summary = llm_fn(prompt.format(topic=topic, source=detail))
     return {
         "summary_per_topic": summary,
     }
 
 
-def get_knowledge(state: State, llm_fn, prompt: str):
+def get_knowledge(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     topic = state["topics"][state["tmp_i_topic"]]
     detail = state["detail_per_topic"][state["tmp_i_topic"]]
     old_knowledges = state["knowledge_per_topic"]
+    old_knowledge_lines = [f"- {k}" for k in old_knowledges]
     if old_knowledges:
         old_knowledge = "（なし）"
     else:
-        old_knowledge = []
-        for k in old_knowledges:
-            old_knowledge.append(f"- {k}")
-        old_knowledge = "\n".join(old_knowledge)
+        old_knowledge = "\n".join(old_knowledge_lines)
 
-    knowledge = llm_fn(prompt.format(
-        topic=topic, source=detail, knowledge=old_knowledge))
+    knowledge = llm_fn(prompt.format(topic=topic, source=detail, knowledge=old_knowledge))
     return {
         "knowledge_per_topic": knowledge,
     }
 
 
-def get_knowledge_for_query(state: State, llm_fn, prompt: str):
+def get_knowledge_for_query(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     query = state["query"]
     topic = state["topics"][state["tmp_i_topic"]]
     detail = state["detail_per_topic"][state["tmp_i_topic"]]
@@ -315,15 +323,13 @@ def get_knowledge_for_query(state: State, llm_fn, prompt: str):
         for k in old_knowledges:
             old_knowledges.append(f"- {k}")
         old_knowledge = "\n".join(old_knowledges)
-    knowledge_for_query = llm_fn(prompt.format(
-        query=query,
-        topic=topic, source=detail, knowledge=old_knowledge))
+    knowledge_for_query = llm_fn(prompt.format(query=query, topic=topic, source=detail, knowledge=old_knowledge))
     return {
         "knowledge_for_query_per_topic": knowledge_for_query,
     }
 
 
-def get_total_summary(state: State, llm_fn, prompt: str):
+def get_total_summary(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     title = state["source_title"]
     title_per_topic = state["title_per_topic"]
     summary_per_topic = state["summary_per_topic"]
@@ -332,16 +338,18 @@ def get_total_summary(state: State, llm_fn, prompt: str):
     for t_title, t_summary in zip(title_per_topic, summary_per_topic):
         summaries.append(f"## {t_title}\n{t_summary}")
 
-    total_summary = llm_fn(prompt.format(
-        title=title,
-        summaries="\n\n".join(summaries),
-    ))
+    total_summary = llm_fn(
+        prompt.format(
+            title=title,
+            summaries="\n\n".join(summaries),
+        )
+    )
     return {
         "total_summary": total_summary,
     }
 
 
-def get_answer(state: State, llm_fn, prompt: str):
+def get_answer(state: State, llm_fn: Callable[[str], Any], prompt: str) -> dict[str, str]:
     query = state["query"]
     title_per_topic = state["title_per_topic"]
     knowledge_for_query_per_topic = state["knowledge_for_query_per_topic"]
@@ -351,17 +359,13 @@ def get_answer(state: State, llm_fn, prompt: str):
     for t_title, t_knowledge in zip(title_per_topic, knowledge_for_query_per_topic):
         knowledges.append(f"## {t_title}\n{t_knowledge}")
 
-    answer = llm_fn(prompt.format(
-        query=query,
-        total_summary=total_summary,
-        knowledge="\n\n".join(knowledges)
-    ))
+    answer = llm_fn(prompt.format(query=query, total_summary=total_summary, knowledge="\n\n".join(knowledges)))
     return {
         "answer": answer,
     }
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("-t", "--target", required=True)
     parser.add_argument("-q", "--query", required=True)
@@ -370,22 +374,21 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
     args.workspace.mkdir(parents=True, exist_ok=True)
-    llm_fn = get_openai_moldel(args.model)
-    llm_fn_json_mode = get_openai_moldel(args.model, json_mode=True)
-    graph = build_graph(llm_fn=llm_fn, llm_fn_json_mode=llm_fn_json_mode)
-    graph = graph.compile()
-    with open("graph.png", "wb") as f:
-        f.write(graph.get_graph().draw_png())
+    model = cast(ResponsesModel, args.model)
+    llm_fn = cast(Callable[[str], str], get_openai_moldel(model))
+    llm_fn_json_mode = cast(Callable[[str], Any], get_openai_moldel(model, json_mode=True))
+    graph = build_graph(llm_fn=llm_fn, llm_fn_json_mode=llm_fn_json_mode).compile()
+    graph.get_graph().draw_png("graph.png")
     result = graph.invoke(
         {"query": args.query, "source_target": args.target},
         {"recursion_limit": 1000},
     )
     print(result["answer"])
 
-    export_state(result, args.workspace)
+    export_state(cast(State, result), args.workspace)
     print("Exported state to", args.workspace)
 
 

@@ -5,14 +5,63 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11.2"
 dependencies = [
+    "langfuse>=2.60.3",
     "langgraph>=0.3.31",
     "markitdown>=0.1.1",
     "openai>=1.75.0",
+    "polars>=1.27.1",
     "pygraphviz>=1.14",
+    "pytest>=8.3.5",
 ]
+license = [{ text = "MIT"}]
 
 [dependency-groups]
 dev = [
     "ipython>=9.1.0",
+    "mypy>=1.15.0",
     "pdbpp>=0.11.6",
+    "ruff>=0.11.7",
 ]
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["T201", "COM812", "ISC001"]
+fixable = ["ALL"]
+unfixable = ["F401", "F841"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+
+[tool.ruff.lint.pylint]
+max-args = 6
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "S101", "N802", "ARG"]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+disallow_untyped_defs = true
+show_error_codes = true
+no_implicit_optional = true
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
