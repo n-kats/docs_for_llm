@@ -13,7 +13,7 @@ dependencies = [
     "pygraphviz>=1.14",
     "pytest>=8.3.5",
 ]
-license = [{ text = "MIT"}]
+license = { text = "MIT"}
 
 [dependency-groups]
 dev = [
@@ -23,10 +23,6 @@ dev = [
     "ruff>=0.11.7",
 ]
 
-[build-system]
-requires = ["hatchling", "uv-dynamic-versioning"]
-build-backend = "hatchling.build"
-
 [tool.ruff]
 line-length = 120
 target-version = "py312"
@@ -35,7 +31,7 @@ target-version = "py312"
 select = ["E", "F", "I"]
 ignore = ["T201", "COM812", "ISC001"]
 fixable = ["ALL"]
-unfixable = ["F401", "F841"]
+unfixable = ["F841"]
 
 [tool.ruff.format]
 quote-style = "double"
